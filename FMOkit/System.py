@@ -45,6 +45,23 @@ def coef_format(coef):
                 formatted += f"       " + "".join(f"{float(v):11.6f}" for v in els) + "\n"
     return formatted.rstrip('\n')
 
+def is_phosphodiester(frg1, frg2, nucleotides):
+    """
+    Whether O3' of one nucleotide is bonded to P of the next.
+    O3'-P is about 1.60 A, often slightly under, so the window starts at 1.5 A.
+    :param frg1: The preceding fragment.
+    :param frg2: The following fragment.
+    :param nucleotides: Residue names treated as nucleotides.
+    :return: True when the two are joined by a phosphodiester bond.
+    """
+    if frg1.comp_id not in nucleotides or frg2.comp_id not in nucleotides:
+        return False
+    o3, p = frg1.find_atom("O3'"), frg2.find_atom("P")
+    if o3 is None or p is None:
+        return False
+    return 1.5 < atom_dist(o3, p) < 1.8
+
+
 def atom_dist(atom1, atom2):
     """
     Calculate the distance between two atoms.
@@ -157,7 +174,7 @@ class System:
             atom = Atom(
                 id=int(row[0]),
                 type_symbol=row[1],
-                atom_id=row[2],
+                atom_id=gemmi.cif.as_string(row[2]),
                 x=float(row[3]),
                 y=float(row[4]),
                 z=float(row[5]),
@@ -378,8 +395,7 @@ class System:
                     ):
                     ca_atom, c_atom = frg1.find_atom("CA"), frg1.find_atom("C")
                     self.fmobnd_list.append((ca_atom, c_atom))
-                elif frg1.comp_id in self.NTs and frg2.comp_id in self.NTs:
-                    # Todo: check for phosphodiester bond
+                elif is_phosphodiester(frg1, frg2, self.NTs):
                     cs_atom, c4_atom = frg2.find_atom("C5'"), frg2.find_atom("C4'")
                     self.fmobnd_list.append((cs_atom, c4_atom))
     
@@ -506,12 +522,7 @@ class System:
         This method modifies the fragments by moving the phosphate and oxygen atoms from one fragment to the next.
         """
         for frg1, frg2 in zip(self.fragments, self.fragments[1:]):
-            if (
-                frg1.asym_id == frg2.asym_id and
-                frg1.comp_id in self.NTs and
-                frg2.comp_id in self.NTs and
-                1.6 < atom_dist(frg1.find_atom("O3'"), frg2.find_atom("P")) < 1.8
-            ):
+            if frg1.asym_id == frg2.asym_id and is_phosphodiester(frg1, frg2, self.NTs):
                 for atom_id in ["P", "OP1", "OP2", "O5'", "C5'", "H5'", "H5'1", "H5''", "H5'2"]:
                     ai =  frg2.find_atom_index(atom_id)
                     if ai is not None:
